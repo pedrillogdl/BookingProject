@@ -1,0 +1,223 @@
+module Advertisement where
+
+--import Booking
+--import DA.Date
+--import DA.Optiona--l
+
+--data Advertisement = Advertisement
+--    with
+--        title : Text
+--        description : Text
+--        country: Text
+--        state: Text
+--        city: Text 
+--        address : Text
+--        base_price : Decimal
+--        hosts : Party
+--        notarys: Party
+--        notes : Text
+--        totalguests: Int
+--        cancellation_policy : Text
+--        cancellation_fee: Decimal
+--        housing_policy: Text 
+--        housing_fees: Decimal
+--        pictures: Text
+--        message_reason: Optional Text
+--    deriving (Eq, Show--)
+
+--data Allocation = Allocation with 
+--  customer: Party
+--  price: Decimal
+--  check_in_day: Date
+--  check_out_day: Date
+--    deriving (Show, Eq--)
+
+--analyzedeals : [Allocation] -> Allocation -> [Allocation] -> [Allocation]
+--analyzedeals [] objA blackList = blackList
+--analyzedeals candidates objA blackList = do
+--    let objB::rest_of_candidates = candidates
+--    let offerA = intToDecimal (subDate objA.check_out_day objA.check_in_day) * objA.price
+--    let offerB = intToDecimal (subDate objB.check_out_day objB.check_in_day) * objB.price
+--    if subDate objA.check_out_day  objB.check_in_day > 0
+--    then 
+--        --if offerA < offerB
+--        if objA.price < objB.price
+--        then
+--            objA::blackList
+--        else
+--            analyzedeals rest_of_candidates objA (objB::blackList) 
+--    else 
+--        analyzedeals rest_of_candidates objA blackLis--t
+
+--processdeals : [Allocation] -> [Allocation] -> [Allocation] -> [Allocation]
+--processdeals [] bestDeal blackList = bestDeal
+--processdeals candidates bestDeal blackList = do
+--    let objA::rest_of_candidates = candidates
+--    let newblacklist = analyzedeals rest_of_candidates objA blackList
+--    let newbestDeal = if objA `notElem` newblacklist
+--        then objA::bestDeal
+--        else bestDeal
+--    let newcandidates = filter (\e -> (notElem e  newblacklist)) rest_of_candidates
+--    processdeals newcandidates newbestDeal newblacklis--t
+
+--getdeals : [Allocation] -> [Allocation]
+--getdeals myallocations = do
+--    let bestDeal = []
+--    let blackList = []
+--    let candidates = myallocations
+--    processdeals candidates bestDeal blackLis--t--
+
+
+--template AdvertisementRequest
+--    with
+--        advertisement : Advertisement
+--    where
+--        signatory advertisement.hosts
+--        observer advertisement.notarys-- 
+
+--        choice ConfirmAdvertisementRequest: ( ContractId MyAd )
+--            with
+--                public: [Party]
+--            controller advertisement.notarys
+--            do
+--                create MyAd with .--.
+
+--               -- 
+
+--        choice ModifyAdvertisementRequest : ( ContractId AdvertisementRequest )
+--            with
+--                advertisement_modified: Advertisement
+--            controller advertisement.hosts
+--            do
+--                create this with advertisement = advertisement_modified
+--        
+--        choice RejectAdvertisementRequest : (ContractId AdvReqCanceled)
+--            with
+--                nmessage_reason: Optional Text
+--            controller advertisement.notarys
+--            do
+--                let
+--                    advertisament = advertisement with 
+--                        message_reason = nmessage_reaso--n
+
+--                create AdvReqCanceled with advertisement
+--        -- Preguntar sobre esto, como archivar con un mensaje extr--a
+
+--        choice WithDrawdvertisementRequest : (--)
+
+--            controller advertisement.hosts
+--            do
+--                pure (--)--
+
+
+--template MyAd
+--    with 
+--        advertisement: Advertisement
+--        public: [Party]
+--    where
+--        signatory advertisement.notarys
+--        observer advertisement.hosts, publi--c
+
+--        --key advertisement.hosts: Party
+--        --maintainer key
+--    
+--        -- Maybe I will need to return this contract for reusing dat
+--        choice CancelAd : ( ContractId AdCanceled )
+--            with
+--               -- message_cancel: Text
+--            controller advertisement.notarys
+--            do
+--                create AdCanceled
+--                    with .--.
+
+--        choice CancelMyAd : ( ContractId AdCanceled )
+--            with
+--                -- message_reasoncancel: Text
+--            controller advertisement.hosts
+--            do
+--                create AdCanceled
+--                    with .--.
+
+--                --do
+--                    --create this with public = publicreader :: publi--c
+
+--        choice ModifyMyAd : (ContractId MyAd)
+--            with
+--                advertisement_modified: Advertisement
+--                public_modified: [Party]
+--            controller advertisement.hosts
+--            do
+--                create this with advertisement = advertisement_modified, public = public_modifie--d
+
+--        nonconsuming choice BookMyAd : ( ContractId BookingRequest)
+--            with
+--                adcustomer: Party
+--                adcheck_in_day : Date
+--                adcheck_out_day : Date
+--                adnumber_of_guests: Int
+--                adnote: Text
+--                my_price: Decimal
+--                adpayments : [Decimal]
+--            controller publi--c
+
+--            do 
+--                let 
+--                    booking = Booking with
+--                        customer = adcustomer
+--                        host = advertisement.hosts
+--                        check_in_day = adcheck_in_day
+--                        check_out_day = adcheck_out_day
+--                        number_of_guests = adnumber_of_guests
+--                        base_price = advertisement.base_price
+--                        offered_price = my_price
+--                        guests_total= advertisement.totalguests
+--                        note = adnote
+--                        payments = adpayments
+--                assert(my_price >= advertisement.base_price && 
+--                       adcheck_in_day < adcheck_out_day &&
+--                       adnumber_of_guests<=advertisement.totalguests)
+--                create BookingRequest with booking; ad = this; allocations = Allocation with party = advertisement.hosts; price = my_price; check_in_day=adcheck_in_day; check_out_day=adcheck_out_day
+--        
+--        nonconsuming choice CalculateBestRequest: ( ContractId BestRequest)
+--            with requestIds: [ ContractId BookingRequest]
+--            controller advertisament.hosts
+--            do
+--                requests <- mapA (\id -> fetch id) requestIds
+--                let requestedAllocs = map (\x -> x.allocation) requests
+--                    sortedAllocs = (sortOn (\x -> Up x.check_in_day) ) requestedAllocs
+--                    finalAllocs = getdeals sortedAllocs
+--                create BestRequest with ad_to_analyze = this; allocations = finalAllocs._--2--
+
+
+--template AdCanceled
+--    with
+--        advertisement: Advertisement
+--    where
+--        signatory advertisement.hosts, advertisement.notarys
+--    
+--        choice ArchiveAd : ()
+--            controller advertisement.hosts
+--            do
+--                pure (--)
+
+--template AdvReqCanceled
+--    with
+--        advertisement: Advertisement
+--    where
+--        signatory advertisement.notarys
+--    
+--        choice ArchiveAdReq : ()
+--            controller advertisement.notarys
+--            do
+--                pure (--)
+
+--template BestRequest
+--  with
+--    ad_to_analyze: MyAd
+--    allocations: [ Allocation ]
+--  where
+--    signatory ad_to_analyze.host
+--    observer map (\x -> x.party) allocations
+--        
+--        
+--        

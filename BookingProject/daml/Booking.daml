@@ -1,0 +1,394 @@
+module Booking where
+
+
+import DA.Date
+import Payment
+import DA.List
+--import Advertisement
+
+data Advertisement = Advertisement
+    with
+        title : Text
+        description : Text
+        country: Text
+        state: Text
+        city: Text 
+        address : Text
+        base_price : Decimal
+        hosts : Party
+        notarys: Party
+        notes : Text
+        totalguests: Int
+        cancellation_policy : Text
+        cancellation_fee: Decimal
+        housing_policy: Text 
+        housing_fees: Decimal
+        pictures: Text
+        message_reason: Optional Text
+    deriving (Eq, Show)
+
+data Allocation = Allocation with 
+  customer: Party
+  price: Decimal
+  check_in_day: Date
+  check_out_day: Date
+    deriving (Show, Eq)
+
+
+data Booking = Booking
+    with
+        customer : Party
+        host : Party
+        check_in_day : Date
+        check_out_day : Date
+        number_of_guests: Int
+        base_price : Decimal
+        offered_price: Decimal
+        guests_total: Int
+        note: Text
+        payments : [Decimal]
+    deriving (Eq, Show)
+
+data BookedInfo = BookedInfo
+    with
+        mybookedad: Booking
+        cancellation_policy: Int
+        cancellation_percentage: Decimal 
+        amount: Decimal
+    deriving (Eq, Show)
+
+data CancelBookedInfo = CancelBookedInfo
+    with
+        bookedcanceled: BookedInfo
+        reasoncancellation: Text
+    deriving (Eq, Show)
+
+
+
+penalty: Decimal -> Int -> Int -> Decimal -> (Decimal)
+penalty totaltopay daysbd canpoly canfee= if daysbd > canpoly    
+                            then do      
+                                0.0
+                            else do
+                                (totaltopay*(canfee/100.0))
+
+calculateDays: Date -> Date -> (Int)
+calculateDays startdate enddate= subDate enddate  startdate 
+
+analyzedeals : [Allocation] -> Allocation -> [Allocation] -> [Allocation]
+analyzedeals [] objA blackList = blackList
+analyzedeals candidates objA blackList = do
+    let objB::rest_of_candidates = candidates
+    let offerA = intToDecimal (subDate objA.check_out_day objA.check_in_day) * objA.price
+    let offerB = intToDecimal (subDate objB.check_out_day objB.check_in_day) * objB.price
+    if subDate objA.check_out_day  objB.check_in_day > 0
+    then 
+        --if offerA < offerB
+        if objA.price < objB.price
+        then
+            objA::blackList
+        else
+            analyzedeals rest_of_candidates objA (objB::blackList) 
+    else 
+        analyzedeals rest_of_candidates objA blackList
+
+processdeals : [Allocation] -> [Allocation] -> [Allocation] -> [Allocation]
+processdeals [] bestDeal blackList = bestDeal
+processdeals candidates bestDeal blackList = do
+    let objA::rest_of_candidates = candidates
+    let newblacklist = analyzedeals rest_of_candidates objA blackList
+    let newbestDeal = if objA `notElem` newblacklist
+        then objA::bestDeal
+        else bestDeal
+    let newcandidates = filter (\e -> (notElem e  newblacklist)) rest_of_candidates
+    processdeals newcandidates newbestDeal newblacklist
+
+getdeals : [Allocation] -> [Allocation]
+getdeals myallocations = do
+    let bestDeal = []
+    let blackList = []
+    let candidates = myallocations
+    processdeals candidates bestDeal blackList
+
+
+template BookingRequest
+    with
+        booking : Booking
+        ad: MyAd
+        allocations: Allocation
+    where
+        ensure booking.offered_price >= booking.base_price && booking.check_in_day < booking.check_out_day && booking.number_of_guests<=booking.guests_total
+        signatory booking.customer
+        observer booking.host
+
+        choice ConfirmBookingRequest : ( ContractId Payable, ContractId Booked)
+            with 
+                message_reference: Text
+                my_price: Decimal
+                days_before_cancellation: Int
+                cancellation_fee: Decimal
+            controller booking.host
+            do
+                let
+                    mybooked = BookedInfo with
+                        mybookedad = booking
+                        cancellation_policy = days_before_cancellation
+                        cancellation_percentage = cancellation_fee
+                        amount = (booking.offered_price * (intToDecimal $ calculateDays booking.check_in_day booking.check_out_day))
+                booked_time <- getTime
+                payBooking <- create Payable
+                    with
+                        from = booking.customer
+                        to = booking.host
+                        grand_total = (booking.offered_price * (intToDecimal $ calculateDays booking.check_in_day booking.check_out_day))
+                        reference = message_reference
+
+                bookedPlace <- create Booked
+                        with 
+                            bookedinfo = mybooked
+                        
+                return (payBooking, bookedPlace)
+
+        choice ModifyBookingRequest : (ContractId BookingRequest)
+            with
+                booking_modified: Booking
+            controller booking.customer
+            do
+                create this with booking = booking_modified
+        
+        choice RejectBookingRequest : ()
+
+            controller booking.host
+            do
+                pure ()
+
+        choice WithdrawBookingRequest : ()
+
+            controller booking.customer
+            do
+                pure ()
+
+
+template Booked
+    with
+        bookedinfo: BookedInfo
+    where
+        signatory bookedinfo.mybookedad.host
+        observer bookedinfo.mybookedad.customer
+
+
+        -- Maybe I will need to return this contract for reusing data
+        choice CancelBooking : ( ContractId BookedCanceled)
+            with
+                message_cancel: Text
+            controller bookedinfo.mybookedad.host
+            do
+                let
+                    bookedad = CancelBookedInfo with
+                        bookedcanceled = bookedinfo
+                        reasoncancellation = message_cancel
+
+                create BookedCanceled 
+                    with canceledbookedinfo = bookedad
+                        
+
+
+
+        choice CancelMyBooking : ( ContractId Payable, ContractId BookedCanceled)
+            with
+                message_reason: Text
+                newamount: Decimal
+            controller bookedinfo.mybookedad.customer
+            do
+                let
+                    bookedad = CancelBookedInfo with
+                        bookedcanceled = bookedinfo
+                        reasoncancellation = message_reason
+                        
+                payPenalty <- create Payable
+                    with
+                        from = bookedinfo.mybookedad.customer
+                        to = bookedinfo.mybookedad.host
+                        grand_total = newamount
+                        reference = message_reason
+                cancellation <- create BookedCanceled 
+                    with 
+                        canceledbookedinfo = bookedad
+
+                return (payPenalty, cancellation)
+
+        choice ModifyBooking : (ContractId Booked)
+            with
+                bookedinfo_modified: BookedInfo
+            controller bookedinfo.mybookedad.customer
+            do
+                create this with bookedinfo = bookedinfo_modified
+
+
+template BookedCanceled
+    with
+        canceledbookedinfo: CancelBookedInfo
+    where
+        signatory canceledbookedinfo.bookedcanceled.mybookedad.host, canceledbookedinfo.bookedcanceled.mybookedad.customer
+
+        choice ArchiveBooked : ()
+
+            controller canceledbookedinfo.bookedcanceled.mybookedad.host
+            do
+                pure ()
+
+template AdvertisementRequest
+    with
+        advertisement : Advertisement
+    where
+        signatory advertisement.hosts
+        observer advertisement.notarys 
+
+        choice ConfirmAdvertisementRequest: ( ContractId MyAd )
+            with
+                public: [Party]
+            controller advertisement.notarys
+            do
+                create MyAd with ..
+
+                
+
+        choice ModifyAdvertisementRequest : ( ContractId AdvertisementRequest )
+            with
+                advertisement_modified: Advertisement
+            controller advertisement.hosts
+            do
+                create this with advertisement = advertisement_modified
+        
+        choice RejectAdvertisementRequest : (ContractId AdvReqCanceled)
+            with
+                nmessage_reason: Optional Text
+            controller advertisement.notarys
+            do
+                let
+                    advertisament = advertisement with 
+                        message_reason = nmessage_reason
+
+                create AdvReqCanceled with advertisement
+        -- Preguntar sobre esto, como archivar con un mensaje extra
+
+        choice WithDrawdvertisementRequest : ()
+
+            controller advertisement.hosts
+            do
+                pure ()
+
+
+template MyAd
+    with 
+        advertisement: Advertisement
+        public: [Party]
+    where
+        signatory advertisement.notarys
+        observer advertisement.hosts, public
+
+        --key advertisement.hosts: Party
+        --maintainer key
+    
+        -- Maybe I will need to return this contract for reusing dat
+        choice CancelAd : ( ContractId AdCanceled )
+            with
+               -- message_cancel: Text
+            controller advertisement.notarys
+            do
+                create AdCanceled
+                    with ..
+
+        choice CancelMyAd : ( ContractId AdCanceled )
+            with
+                -- message_reasoncancel: Text
+            controller advertisement.hosts
+            do
+                create AdCanceled
+                    with ..
+
+                --do
+                    --create this with public = publicreader :: public
+
+        choice ModifyMyAd : (ContractId MyAd)
+            with
+                advertisement_modified: Advertisement
+                public_modified: [Party]
+            controller advertisement.hosts
+            do
+                create this with advertisement = advertisement_modified, public = public_modified
+
+        nonconsuming choice BookMyAd : ( ContractId BookingRequest)
+            with
+                adcustomer: Party
+                adcheck_in_day : Date
+                adcheck_out_day : Date
+                adnumber_of_guests: Int
+                adnote: Text
+                my_price: Decimal
+                adpayments : [Decimal]
+            controller public
+
+            do 
+                let 
+                    booking = Booking with
+                        customer = adcustomer
+                        host = advertisement.hosts
+                        check_in_day = adcheck_in_day
+                        check_out_day = adcheck_out_day
+                        number_of_guests = adnumber_of_guests
+                        base_price = advertisement.base_price
+                        offered_price = my_price
+                        guests_total= advertisement.totalguests
+                        note = adnote
+                        payments = adpayments
+                assert(my_price >= advertisement.base_price && 
+                       adcheck_in_day < adcheck_out_day &&
+                       adnumber_of_guests<=advertisement.totalguests)
+                create BookingRequest with booking; ad = this; allocations = Allocation with customer = booking.customer; price = my_price; check_in_day=adcheck_in_day; check_out_day=adcheck_out_day
+        
+        nonconsuming choice CalculateBestRequest: ( ContractId BestRequest)
+            with requestIds: [ ContractId BookingRequest]
+            controller advertisement.hosts
+            do
+                requests <- mapA (\id -> fetch id) requestIds
+                let requestedAllocs = map (\x -> x.allocations) requests
+                    sortedAllocs = (sortOn (\x -> Down x.price) ) requestedAllocs
+                    finalAllocs = getdeals sortedAllocs -- TODO: filter qty = 0 allocs?
+                create BestRequest with ad_to_analyze = this; allocations = finalAllocs
+
+
+template AdCanceled
+    with
+        advertisement: Advertisement
+    where
+        signatory advertisement.hosts, advertisement.notarys
+    
+        choice ArchiveAd : ()
+            controller advertisement.hosts
+            do
+                pure ()
+
+template AdvReqCanceled
+    with
+        advertisement: Advertisement
+    where
+        signatory advertisement.notarys
+    
+        choice ArchiveAdReq : ()
+            controller advertisement.notarys
+            do
+                pure ()
+
+template BestRequest
+  with
+    ad_to_analyze: MyAd
+    allocations: [ Allocation ]
+  where
+    signatory ad_to_analyze.advertisement.hosts
+    observer map (\x -> x.customer) allocations
+        
+
+        
+        
+        

@@ -1,0 +1,178 @@
+module Main where
+
+import Booking
+import Notary  
+import Daml.Script
+--import Advertisement
+import DA.Optional
+import DA.Date
+
+
+
+setup : Script ()
+setup = script do
+
+  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
+  charlie <- allocatePartyWithHint "Charlie" (PartyIdHint "Charlie")
+  cesar <- allocatePartyWithHint "Cesar" (PartyIdHint "Cesar")
+  notary <- allocatePartyWithHint "Notary" (PartyIdHint "Notary") 
+
+  let 
+    advertisement = Advertisement with
+      title = "Front View Aparment in the best zone in the city "
+      description = "Apartment with 2 bedrooms, each one with a queen size bed, living room, bath room, patio, etc"
+      country = "Mexico"
+      state = "Jalisco"
+      city = "Zapopan"
+      address = "Lopez Mateos 2320, La Calma"
+      base_price = 1500.0
+      hosts = charlie
+      notarys = notary
+      notes = "Check-in is dayly at 3 pm, check-out is daily at 11 am"
+      totalguests = 5
+      cancellation_policy = "Free cancellation one day before the check-in date, 30 cancellation fee after that day"
+      cancellation_fee = 30.0
+      housing_policy = "Any broken or missing thing will be charged to the customer, charges for cleaning are 1000 "
+      housing_fees= 1000.0
+      pictures = "Here I need to put the pictures"
+      message_reason = None
+
+    
+
+
+    --second_advertisement =  advertisement with
+      --title = "A beach Front View Aparment in the best zone in the city "
+
+
+  bobHostReq <- submit bob do 
+    createCmd HostsRequest 
+      with 
+        notary = notary 
+        host = bob
+        reason = "I want to be a host because I need to announce a room"
+
+  rejectHostReq <- submit notary do 
+    exerciseCmd bobHostReq RejectHostsRequest
+
+  bobHostReq2 <- submit bob do 
+    createCmd HostsRequest 
+      with 
+        notary = notary 
+        host = bob
+        reason = "Please, I want to be a host because I need to announce a room"
+
+  acceptHostReq <- submit notary do 
+    exerciseCmd bobHostReq2 HostRights
+
+  revokeHost <- submit notary do 
+    exerciseCmd acceptHostReq RevokeHostsRights
+
+  charlieHostReq <- submit charlie do 
+    createCmd HostsRequest 
+      with 
+        notary = notary 
+        host = charlie
+        reason = "I swear this is the last request, I want to be a host because I need to announce a room"
+
+  acceptHostReq2 <- submit notary do 
+    exerciseCmd charlieHostReq HostRights
+  
+  aliceCustomerReq <- submit alice do 
+    createCmd CustomersRequest
+      with 
+        notary = notary 
+        customer = alice
+        reason = "I want to be a customer because I need to book a room "
+  
+  rejectCustomerReq <- submit notary do 
+    exerciseCmd aliceCustomerReq RejectCustomerRequest
+
+  aliceCustomerReq2 <- submit alice do 
+    createCmd CustomersRequest
+      with 
+        notary = notary 
+        customer = alice
+        reason = "I really want to be a customer because I need to book a room "
+
+  cesarCustomerReq <- submit cesar do 
+    createCmd CustomersRequest
+      with 
+        notary = notary 
+        customer = cesar
+        reason = "I want to be a customer because I need to book a room "
+
+
+  acceptCustomerReq <- submit notary do 
+    exerciseCmd aliceCustomerReq2 GrantCustomerRights
+  
+
+  revokeCustomer <- submit notary do 
+    exerciseCmd acceptCustomerReq RevokeCustomersRights
+  
+  aliceCustomerReq3 <- submit alice do 
+    createCmd CustomersRequest
+      with 
+        notary = notary 
+        customer = alice
+        reason = "Please, No more requests, I really want to be a customer because I need to book a room "
+
+  acceptCustomerReq2 <- submit notary do 
+    exerciseCmd aliceCustomerReq3 GrantCustomerRights
+
+  acceptCustomerReq3 <- submit notary do 
+    exerciseCmd cesarCustomerReq GrantCustomerRights
+
+  createFirstAdRequest <- submit advertisement.hosts do
+    createCmd AdvertisementRequest
+      with
+        advertisement 
+
+  rejectAdReq <- submit advertisement.notarys do
+    exerciseCmd createFirstAdRequest RejectAdvertisementRequest
+      with
+        nmessage_reason = Some "This Ad doesn't have the right information"
+   
+  createSecondAdRequest <- submit advertisement.hosts do
+    createCmd AdvertisementRequest
+      with
+        advertisement = advertisement with title = "A beach Front View Aparment in the best zone in the city"
+
+  acceptAddReq <- submit advertisement.notarys do 
+    exerciseCmd createSecondAdRequest ConfirmAdvertisementRequest
+      with
+        public = [alice,cesar]
+  
+  modifyAd <- submit advertisement.hosts do
+    exerciseCmd acceptAddReq ModifyMyAd
+      with
+        advertisement_modified = advertisement with housing_fees= 1500.0
+        public_modified = [alice]
+
+  bookingAd <- submit alice do 
+    exerciseCmd modifyAd BookMyAd
+      with 
+        adcustomer = alice
+        adcheck_in_day = date 2022 Jun 22
+        adcheck_out_day = date 2022 Jun 30
+        adnumber_of_guests= 5
+        adnote= "Alergic to Dogs"
+        my_price = 1600.80
+        adpayments = [12.20]
+
+  bookingAd2 <- submit cesar do 
+    exerciseCmd modifyAd BookMyAd
+      with 
+        adcustomer = cesar
+        adcheck_in_day = date 2022 Jun 26
+        adcheck_out_day = date 2022 Jul 2
+        adnumber_of_guests= 3
+        adnote= "Alergic to Dogs"
+        my_price = 1650.80
+        adpayments = [12.20]
+
+  
+  return ()
+
+  -- Create a new template for extra charges like missing things or broken things
+  -- Add charges for taxes and services

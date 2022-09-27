@@ -1,0 +1,178 @@
+module Notary where 
+
+import Booking
+import Payment
+--import Advertisement
+
+template Hosts
+  with 
+    notary: Party 
+    host: Party 
+  where 
+    signatory notary 
+    ensure notary /= host
+    observer host
+
+    key (notary, host): (Party, Party)
+    maintainer key._1
+
+    nonconsuming choice AcceptBookingRequest :
+                    ( ContractId Payable, ContractId Booked )
+                with
+                    requestId: ContractId BookingRequest
+                    messagereference: Text
+                    daysbeforecancellation: Int
+                    cancellationfee: Decimal
+                    pricebooking: Decimal
+            controller host
+                do
+                     exercise requestId ConfirmBookingRequest
+                        with
+                            message_reference= messagereference
+                            my_price = pricebooking
+                            days_before_cancellation= daysbeforecancellation
+                            cancellation_fee= cancellationfee
+
+    nonconsuming choice CancelBooked:
+                    ContractId BookedCanceled
+                with 
+                    requestId: ContractId Booked
+            controller host
+                do
+                    exercise requestId CancelBooking
+                        with
+                            message_cancel = "It is not safe to have this customer"
+    
+    nonconsuming choice RejectRequest : 
+                     ()
+            controller host
+                do
+                    pure ()
+
+    choice RevokeHostsRights :
+            ()
+        controller notary 
+            do
+                return()
+
+    nonconsuming choice ArchiveBookedRequest : 
+                     ()
+                with 
+                    archiveID: ContractId BookedCanceled
+            controller host
+                do
+                    exercise archiveID ArchiveBooked
+    
+ 
+
+
+template HostsRequest
+  with 
+    notary: Party 
+    host: Party 
+    reason: Text 
+  where 
+    signatory host 
+    observer notary
+
+    key (notary, host): (Party, Party)
+    maintainer key._2
+
+    choice HostRights :
+                ContractId Hosts
+        controller notary
+            do
+                create Hosts with ..
+    
+    choice RejectHostsRequest :
+            ()
+        controller notary
+            do
+                return ()
+
+template Customers
+  with 
+    notary: Party 
+    customer: Party 
+  where 
+    signatory notary
+    ensure notary /= customer
+    observer customer 
+
+    key (notary, customer): (Party, Party)
+    maintainer key._1
+
+    nonconsuming choice RevokeBookingRequest : 
+                ()
+        controller customer
+            do
+                return()
+
+    nonconsuming choice BookAds : ( ContractId BookingRequest)
+        with
+            myBookingRequest: ContractId MyAd
+            check_in_day : Date
+            check_out_day : Date
+            number_of_guests: Int
+            note: Text
+            priceoffer: Decimal
+            payments : [Decimal]
+
+        controller customer
+            do
+                exercise myBookingRequest BookMyAd
+                    with
+                        adcustomer = customer
+                        adcheck_in_day = check_in_day
+                        adcheck_out_day = check_out_day
+                        adnumber_of_guests = number_of_guests
+                        adnote = note
+                        my_price = priceoffer
+                        adpayments = payments
+
+
+
+
+    nonconsuming choice CancelMyBooked : 
+                    (ContractId Payable, ContractId BookedCanceled)
+                with
+                    bookedID: ContractId Booked
+            controller customer
+                do
+                    exercise bookedID CancelMyBooking
+                        with
+                            message_reason = "I don't have vacations anymore"
+                            newamount = 1500.0
+
+
+    choice RevokeCustomersRights :
+            ()
+        controller notary 
+            do
+                return() 
+
+template CustomersRequest 
+  with 
+    notary: Party 
+    customer: Party 
+    reason: Text 
+  where 
+    signatory customer
+    observer notary 
+
+    key (notary, customer): (Party, Party)
+    maintainer key._2
+
+    choice GrantCustomerRights :
+                ContractId Customers
+        controller notary
+            do
+                create Customers with ..
+
+    choice RejectCustomerRequest :
+            ()
+        controller notary
+            do
+                return ()
+
+
