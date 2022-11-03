@@ -1,0 +1,129 @@
+module OrderToCash where
+
+import DA.List
+import Daml.Script
+
+data PurchaseOrder = PurchaseOrder with
+  description : Text
+  price : Decimal
+    deriving (Eq, Show)
+
+type CarrierQuotationKey = (Party, PurchaseOrder)
+template CarrierQuotation
+  with
+    po : PurchaseOrder
+    carrier : Party
+    supplier : Party
+    price : Decimal
+  where
+    signatory carrier
+    observer supplier
+
+    key (carrier, po) : CarrierQuotationKey
+    maintainer key._1
+
+template ProposedPurchaseOrder
+  with
+    po : PurchaseOrder
+    customer : Party
+    supplier : Party
+  where
+    signatory customer
+    observer supplier
+
+    choice Accept : ContractId AcceptedPurchaseOrder
+      controller supplier
+      do
+        create AcceptedPurchaseOrder with po, customer, supplier, carriers = [], carrier = None
+
+template RequestForShippingQuotation
+  with
+    po: PurchaseOrder
+    supplier: Party
+    carrier: Party
+  where
+    signatory supplier
+    observer carrier
+
+    choice SubmitQuotation: ContractId CarrierQuotation
+      with
+        price: Decimal
+      controller carrier
+      do
+        create CarrierQuotation with po, carrier, supplier, price
+
+template AcceptedPurchaseOrder
+  with
+    po : PurchaseOrder
+    customer : Party
+    supplier : Party
+    carriers : [Party]
+    carrier : Optional Party
+  where
+    signatory supplier
+    observer customer
+        
+    nonconsuming choice InviteCarrier: (ContractId AcceptedPurchaseOrder, ContractId RequestForShippingQuotation) with
+        candidate : Party
+      controller supplier
+      do
+        rfq <- create RequestForShippingQuotation with po, supplier, carrier = candidate
+        archive self
+        nself <- create this with carriers = candidate :: carriers
+        pure $ (nself, rfq)
+
+
+    nonconsuming choice SelectCarrier: ContractId AcceptedPurchaseOrder
+      controller supplier
+      do
+        qs <- mapA (\c -> fetchByKey @CarrierQuotation (c, po)) carriers
+        let ordered = (sortOn \(id, quotation) -> quotation.price) qs
+            (id,  quotation) = head ordered
+
+        -- TODO
+        -- Extend CarrierQuotation with choices for Acceptance/Rejection
+        -- Accept first quotation (after sorting them)
+        -- Reject all the other quotations (but first one)
+        archive self
+        create this with carrier = Some quotation.carrier
+
+test = script do
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  hugo <- allocateParty "Hugo"
+  paco <- allocateParty "Paco"
+  luis <- allocateParty "Luis"
+
+  mypo <- submit alice do
+    createCmd ProposedPurchaseOrder with
+      customer = alice
+      supplier = bob
+      po = PurchaseOrder with
+        description = "Bicycle"
+        price = 10.0
+  
+  mypo <- submit bob do
+      exerciseCmd mypo Accept
+
+  (mypo, hugoInv) <- submit bob do
+    exerciseCmd mypo InviteCarrier with
+      candidate = hugo
+
+  (mypo, pacoInv) <- submit bob do
+    exerciseCmd mypo InviteCarrier with
+      candidate = paco
+
+  -- (mypo, luisInv) <- submit bob do
+  --   exerciseCmd mypo InviteCarrier with
+  --     candidate = luis
+
+  submit hugo do
+    exerciseCmd hugoInv SubmitQuotation with
+      price = 5.0
+
+  submit paco do
+    exerciseCmd pacoInv SubmitQuotation with
+      price = 7.0
+
+  submit bob do exerciseCmd mypo SelectCarrier
+

@@ -16,22 +16,20 @@ template Hosts
     key (notary, host): (Party, Party)
     maintainer key._1
 
-    nonconsuming choice AcceptBookingRequest :
-                    ( ContractId Payable, ContractId Booked )
-                with
-                    requestId: ContractId BookingRequest
-                    messagereference: Text
-                    daysbeforecancellation: Int
-                    cancellationfee: Decimal
-                    pricebooking: Decimal
-            controller host
-                do
-                     exercise requestId ConfirmBookingRequest
-                        with
-                            message_reference= messagereference
-                            my_price = pricebooking
-                            days_before_cancellation= daysbeforecancellation
-                            cancellation_fee= cancellationfee
+    choice AcceptBookingRequest : ( ContractId Booked, ContractId Payable )
+    --choice AcceptBookingRequest : (ContractId Payable )
+               with
+                   requestId: ContractId BestRequest
+                   messagereference: Text
+                   daysbeforecancellation: Int
+                   cancellationfee: Decimal
+           controller host
+               do
+                    exercise requestId ConfirmBookingRequest
+                       with
+                           message_reference= messagereference
+                           days_before_cancellation= daysbeforecancellation
+                           cancellationfee= cancellationfee
 
     nonconsuming choice CancelBooked:
                     ContractId BookedCanceled
@@ -110,25 +108,26 @@ template Customers
 
     nonconsuming choice BookAds : ( ContractId BookingRequest)
         with
-            myBookingRequest: ContractId MyAd
-            check_in_day : Date
-            check_out_day : Date
-            number_of_guests: Int
-            note: Text
-            priceoffer: Decimal
-            payments : [Decimal]
-
+            ad: ContractId MyAd
+            bookinga: Booking
+            allocations: Allocation
+            public: Party
         controller customer
             do
-                exercise myBookingRequest BookMyAd
-                    with
-                        adcustomer = customer
-                        adcheck_in_day = check_in_day
-                        adcheck_out_day = check_out_day
-                        adnumber_of_guests = number_of_guests
-                        adnote = note
-                        my_price = priceoffer
-                        adpayments = payments
+                create BookingRequest with ..
+    
+    nonconsuming choice ValidatePaid : ( ContractId PaymentClaim)
+        with
+            contract_paid: ContractId Payable
+            transactionIdT: Text
+ 
+        controller customer
+            do
+                exercise contract_paid ClaimPaid
+                    with 
+                        transactionId = transactionIdT
+
+
 
 
 

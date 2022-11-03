@@ -75,16 +75,17 @@ penalty totaltopay daysbd canpoly canfee= if daysbd > canpoly
 calculateDays: Date -> Date -> (Int)
 calculateDays startdate enddate= subDate enddate  startdate 
 
-analyzedeals : [Allocation] -> Allocation -> [Allocation] -> [Allocation]
+analyzedeals : [BookingRequest] -> BookingRequest -> [BookingRequest] -> [BookingRequest]
+--analyzedeals : [Allocation] -> Allocation -> [Allocation] -> [Allocation]
 analyzedeals [] objA blackList = blackList
 analyzedeals candidates objA blackList = do
     let objB::rest_of_candidates = candidates
-    let offerA = intToDecimal (subDate objA.check_out_day objA.check_in_day) * objA.price
-    let offerB = intToDecimal (subDate objB.check_out_day objB.check_in_day) * objB.price
-    if subDate objA.check_out_day  objB.check_in_day > 0
+    let offerA = intToDecimal (subDate objA.allocations.check_out_day objA.allocations.check_in_day) * objA.allocations.price
+    let offerB = intToDecimal (subDate objB.allocations.check_out_day objB.allocations.check_in_day) * objB.allocations.price
+    if subDate objA.allocations.check_out_day  objB.allocations.check_in_day > 0
     then 
         --if offerA < offerB
-        if objA.price < objB.price
+        if objA.allocations.price < objB.allocations.price
         then
             objA::blackList
         else
@@ -92,7 +93,8 @@ analyzedeals candidates objA blackList = do
     else 
         analyzedeals rest_of_candidates objA blackList
 
-processdeals : [Allocation] -> [Allocation] -> [Allocation] -> [Allocation]
+processdeals : [BookingRequest] -> [BookingRequest] -> [BookingRequest] -> [BookingRequest]
+--processdeals : [Allocation] -> [Allocation] -> [Allocation] -> [Allocation]
 processdeals [] bestDeal blackList = bestDeal
 processdeals candidates bestDeal blackList = do
     let objA::rest_of_candidates = candidates
@@ -103,68 +105,53 @@ processdeals candidates bestDeal blackList = do
     let newcandidates = filter (\e -> (notElem e  newblacklist)) rest_of_candidates
     processdeals newcandidates newbestDeal newblacklist
 
-getdeals : [Allocation] -> [Allocation]
+--getdeals : [Allocation] -> [Allocation]
+--getdeals myallocations = do
+--    let bestDeal = []
+--    let blackList = []
+--    let candidates = myallocations
+--    processdeals candidates bestDeal blackList
+
+getdeals : [BookingRequest] -> [BookingRequest]
 getdeals myallocations = do
     let bestDeal = []
     let blackList = []
     let candidates = myallocations
     processdeals candidates bestDeal blackList
 
+type BookingRequestKey = (Party, Allocation)
 
 template BookingRequest
     with
-        booking : Booking
-        ad: MyAd
+        ad: ContractId MyAd
+        bookinga : Booking
         allocations: Allocation
+        public: Party
     where
-        ensure booking.offered_price >= booking.base_price && booking.check_in_day < booking.check_out_day && booking.number_of_guests<=booking.guests_total
-        signatory booking.customer
-        observer booking.host
+        ensure bookinga.offered_price >= bookinga.base_price && bookinga.check_in_day < bookinga.check_out_day && bookinga.number_of_guests<=bookinga.guests_total
+        signatory bookinga.customer
+        observer bookinga.host
 
-        choice ConfirmBookingRequest : ( ContractId Payable, ContractId Booked)
-            with 
-                message_reference: Text
-                my_price: Decimal
-                days_before_cancellation: Int
-                cancellation_fee: Decimal
-            controller booking.host
-            do
-                let
-                    mybooked = BookedInfo with
-                        mybookedad = booking
-                        cancellation_policy = days_before_cancellation
-                        cancellation_percentage = cancellation_fee
-                        amount = (booking.offered_price * (intToDecimal $ calculateDays booking.check_in_day booking.check_out_day))
-                booked_time <- getTime
-                payBooking <- create Payable
-                    with
-                        from = booking.customer
-                        to = booking.host
-                        grand_total = (booking.offered_price * (intToDecimal $ calculateDays booking.check_in_day booking.check_out_day))
-                        reference = message_reference
+        key (bookinga.customer, allocations) : BookingRequestKey
+        maintainer key._1
 
-                bookedPlace <- create Booked
-                        with 
-                            bookedinfo = mybooked
-                        
-                return (payBooking, bookedPlace)
 
         choice ModifyBookingRequest : (ContractId BookingRequest)
             with
                 booking_modified: Booking
-            controller booking.customer
+            controller bookinga.customer
             do
-                create this with booking = booking_modified
+                create this with bookinga = booking_modified
         
         choice RejectBookingRequest : ()
 
-            controller booking.host
+            controller bookinga.host
             do
                 pure ()
 
         choice WithdrawBookingRequest : ()
 
-            controller booking.customer
+            controller bookinga.customer
             do
                 pure ()
 
@@ -246,7 +233,7 @@ template AdvertisementRequest
 
         choice ConfirmAdvertisementRequest: ( ContractId MyAd )
             with
-                public: [Party]
+                public: Party
             controller advertisement.notarys
             do
                 create MyAd with ..
@@ -282,7 +269,7 @@ template AdvertisementRequest
 template MyAd
     with 
         advertisement: Advertisement
-        public: [Party]
+        public: Party
     where
         signatory advertisement.notarys
         observer advertisement.hosts, public
@@ -313,48 +300,50 @@ template MyAd
         choice ModifyMyAd : (ContractId MyAd)
             with
                 advertisement_modified: Advertisement
-                public_modified: [Party]
+                public_user: Party
             controller advertisement.hosts
             do
-                create this with advertisement = advertisement_modified, public = public_modified
+                create this with advertisement = advertisement_modified, public = public_user
 
-        nonconsuming choice BookMyAd : ( ContractId BookingRequest)
-            with
-                adcustomer: Party
-                adcheck_in_day : Date
-                adcheck_out_day : Date
-                adnumber_of_guests: Int
-                adnote: Text
-                my_price: Decimal
-                adpayments : [Decimal]
-            controller public
+--nonconsuming choice BookMyAd : ( ContractId BookingRequest)
+--    with
+--        adcustomer: Party
+--        adcheck_in_day : Date
+--        adcheck_out_day : Date
+--        adnumber_of_guests: Int
+--        adnote: Text
+--        my_price: Decimal
+--        adpayments : [Decimal]
+--    controller adcustomer
+--
+--    do 
+--        let 
+--            booking = Booking with
+--                customer = adcustomer
+--                host = advertisement.hosts
+--                check_in_day = adcheck_in_day
+--                check_out_day = adcheck_out_day
+--                number_of_guests = adnumber_of_guests
+--                base_price = advertisement.base_price
+--                offered_price = my_price
+--                guests_total= advertisement.totalguests
+--                note = adnote
+--                payments = adpayments
+--        assert(my_price >= advertisement.base_price && 
+--               adcheck_in_day < adcheck_out_day &&
+--               adnumber_of_guests<=advertisement.totalguests)
+--        create BookingRequest with booking; ad = this; allocations = Allocation with customer = booking.customer; price = my_price; check_in_day=adcheck_in_day; check_out_day=adcheck_out_day
 
-            do 
-                let 
-                    booking = Booking with
-                        customer = adcustomer
-                        host = advertisement.hosts
-                        check_in_day = adcheck_in_day
-                        check_out_day = adcheck_out_day
-                        number_of_guests = adnumber_of_guests
-                        base_price = advertisement.base_price
-                        offered_price = my_price
-                        guests_total= advertisement.totalguests
-                        note = adnote
-                        payments = adpayments
-                assert(my_price >= advertisement.base_price && 
-                       adcheck_in_day < adcheck_out_day &&
-                       adnumber_of_guests<=advertisement.totalguests)
-                create BookingRequest with booking; ad = this; allocations = Allocation with customer = booking.customer; price = my_price; check_in_day=adcheck_in_day; check_out_day=adcheck_out_day
-        
         nonconsuming choice CalculateBestRequest: ( ContractId BestRequest)
             with requestIds: [ ContractId BookingRequest]
             controller advertisement.hosts
             do
                 requests <- mapA (\id -> fetch id) requestIds
-                let requestedAllocs = map (\x -> x.allocations) requests
-                    sortedAllocs = (sortOn (\x -> Down x.price) ) requestedAllocs
-                    finalAllocs = getdeals sortedAllocs -- TODO: filter qty = 0 allocs?
+                --let requestedAllocs = map (\x -> x.allocations) requests
+                    --sortedAllocs = (sortOn (\x -> Down x.check_in_day) ) requestedAllocs
+                let sortedRequests = (sortOn (\x -> Down x.allocations.check_in_day)) requests
+                    -- finalAllocs = getdeals sortedAllocs -- TODO: filter qty = 0 allocs?
+                    finalAllocs = getdeals sortedRequests -- TODO: filter qty = 0 allocs?
                 create BestRequest with ad_to_analyze = this; allocations = finalAllocs
 
 
@@ -381,14 +370,37 @@ template AdvReqCanceled
                 pure ()
 
 template BestRequest
-  with
-    ad_to_analyze: MyAd
-    allocations: [ Allocation ]
-  where
-    signatory ad_to_analyze.advertisement.hosts
-    observer map (\x -> x.customer) allocations
-        
+    with
+        ad_to_analyze: MyAd
+        allocations: [ BookingRequest ]
+    where
+        signatory ad_to_analyze.advertisement.hosts
+        observer map (\x -> x.allocations.customer) allocations
 
-        
-        
-        
+        let bestbookingrequest = head allocations
+        choice ConfirmBookingRequest : ( ContractId Booked, ContractId Payable)
+                with 
+                    message_reference: Text
+                    days_before_cancellation: Int
+                    cancellationfee: Decimal
+                controller bestbookingrequest.bookinga.host
+                do
+                    let
+                        --bestbookingrequest allocations = allocations
+                        mybooked = BookedInfo with
+                            mybookedad = bestbookingrequest.bookinga
+                            cancellation_policy = days_before_cancellation
+                            cancellation_percentage = cancellationfee
+                            amount = (bestbookingrequest.bookinga.offered_price * (intToDecimal $ calculateDays bestbookingrequest.bookinga.check_in_day bestbookingrequest.bookinga.check_out_day))
+                    booked_time <- getTime
+                    bookedPlace <- create Booked
+                          with 
+                              bookedinfo = mybooked                    
+                    payBooking <- create Payable
+                      with
+                          from = bestbookingrequest.bookinga.customer
+                          to = bestbookingrequest.bookinga.host
+                          grand_total = (bestbookingrequest.bookinga.offered_price * (intToDecimal $ calculateDays bestbookingrequest.bookinga.check_in_day bestbookingrequest.bookinga.check_out_day))
+                          reference = message_reference   
+
+                    return (bookedPlace, payBooking) 

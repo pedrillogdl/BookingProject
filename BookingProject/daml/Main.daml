@@ -6,17 +6,77 @@ import Daml.Script
 --import Advertisement
 import DA.Optional
 import DA.Date
+import DA.List
+import Setup
+import Payment
 
 
 
 setup : Script ()
 setup = script do
 
-  alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
-  bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
-  charlie <- allocatePartyWithHint "Charlie" (PartyIdHint "Charlie")
-  cesar <- allocatePartyWithHint "Cesar" (PartyIdHint "Cesar")
+  Setup.setup
+  --alice <- allocatePartyWithHint "Alice" (PartyIdHint "Alice")
+  --bob <- allocatePartyWithHint "Bob" (PartyIdHint "Bob")
+  --charlie <- allocatePartyWithHint "Charlie" (PartyIdHint "Charlie")
+  --cesar <- allocatePartyWithHint "Cesar" (PartyIdHint "Cesar")
+  --publico <- allocatePartyWithHint "Publico" (PartyIdHint "Publico")
   notary <- allocatePartyWithHint "Notary" (PartyIdHint "Notary") 
+
+  publicoId <- validateUserId $ toUserId "publico"
+  publicoUser <- getUser publicoId
+  let Some publico = publicoUser.primaryParty
+  
+
+  -- Now, we get access to "public" by quering bob rights
+  publicoRights <- listUserRights publicoId
+  let readAs = [p | CanReadAs p <- publicoRights]
+  let publicoPublic = head readAs
+  
+
+  aliceId <- validateUserId $ toUserId "alice"
+  aliceUser <- getUser aliceId
+  let Some alice = aliceUser.primaryParty
+  
+
+  -- Now, we get access to "public" by quering bob rights
+  aliceRights <- listUserRights aliceId
+  let readAs = [p | CanReadAs p <- aliceRights]
+  let alicePublic = head readAs
+  
+
+  cesarId <- validateUserId $ toUserId "cesar"
+  cesarUser <- getUser cesarId
+  let Some cesar = cesarUser.primaryParty
+  
+
+  -- Now, we get access to "public" by quering bob rights
+  cesarRights <- listUserRights cesarId
+  let readAs = [p | CanReadAs p <- cesarRights]
+  let cesarPublic = head readAs
+  
+
+  charlieId <- validateUserId $ toUserId "charlie"
+  charlieUser <- getUser charlieId
+  let Some charlie = charlieUser.primaryParty
+  
+
+  -- Now, we get access to "public" by quering bob rights
+  charlieRights <- listUserRights charlieId
+  let readAs = [p | CanReadAs p <- charlieRights]
+  let charliePublic = head readAs
+  
+
+  bobId <- validateUserId $ toUserId "bob"
+  bobUser <- getUser bobId
+  let Some bob = bobUser.primaryParty
+  
+
+  -- Now, we get access to "public" by quering bob rights
+  bobRights <- listUserRights bobId
+  let readAs = [p | CanReadAs p <- bobRights]
+  let bobPublic = head readAs
+  
 
   let 
     advertisement = Advertisement with
@@ -37,6 +97,20 @@ setup = script do
       housing_fees= 1000.0
       pictures = "Here I need to put the pictures"
       message_reason = None
+  
+  let
+    booking2 = Booking with
+      customer = publico
+      host = publico
+      check_in_day = date 3000 Jan 01
+      check_out_day = date 300 Jan 02
+      number_of_guests = 0
+      base_price = 0.0
+      offered_price = 0.0
+      guests_total = 0
+      note = "nothin"
+      payments = [0.0]
+
 
     
 
@@ -102,6 +176,16 @@ setup = script do
         customer = cesar
         reason = "I want to be a customer because I need to book a room "
 
+  publicoCustomerReq <- submit publico do 
+    createCmd CustomersRequest
+      with 
+        notary = notary 
+        customer = publico
+        reason = "We need a public profile"
+  
+  acceptCustomerReq <- submit notary do 
+    exerciseCmd publicoCustomerReq GrantCustomerRights
+
 
   acceptCustomerReq <- submit notary do 
     exerciseCmd aliceCustomerReq2 GrantCustomerRights
@@ -123,6 +207,9 @@ setup = script do
   acceptCustomerReq3 <- submit notary do 
     exerciseCmd cesarCustomerReq GrantCustomerRights
 
+  
+
+
   createFirstAdRequest <- submit advertisement.hosts do
     createCmd AdvertisementRequest
       with
@@ -141,35 +228,69 @@ setup = script do
   acceptAddReq <- submit advertisement.notarys do 
     exerciseCmd createSecondAdRequest ConfirmAdvertisementRequest
       with
-        public = [alice,cesar]
+        public = publicoPublic
   
   modifyAd <- submit advertisement.hosts do
     exerciseCmd acceptAddReq ModifyMyAd
       with
-        advertisement_modified = advertisement with housing_fees= 1500.0
-        public_modified = [alice]
+        public_user = publicoPublic, advertisement_modified = advertisement with housing_fees= 1500.0
+
 
   bookingAd <- submit alice do 
-    exerciseCmd modifyAd BookMyAd
-      with 
-        adcustomer = alice
-        adcheck_in_day = date 2022 Jun 22
-        adcheck_out_day = date 2022 Jun 30
-        adnumber_of_guests= 5
-        adnote= "Alergic to Dogs"
-        my_price = 1600.80
-        adpayments = [12.20]
+    createCmd BookingRequest
+      with
+        ad = modifyAd
+        bookinga = booking2 with 
+          customer = alice
+          host = advertisement.hosts
+          check_in_day = date 2023 Jun 22
+          check_out_day = date 2023 Jun 30
+          number_of_guests = 5
+          base_price = advertisement.base_price
+          offered_price = 1800.80
+          guests_total = advertisement.totalguests
+          note = "Alergic to Dogs"
+          payments = [12.20]
+        allocations = Allocation with customer = alice; price = 1800.80; check_in_day=date 2023 Jun 22; check_out_day=date 2023 Jun 30
+        public = alice
 
   bookingAd2 <- submit cesar do 
-    exerciseCmd modifyAd BookMyAd
+    createCmd BookingRequest
+      with
+        ad = modifyAd
+        bookinga = booking2 with 
+          customer = cesar
+          host = advertisement.hosts
+          check_in_day = date 2023 Jun 26
+          check_out_day = date 2023 Jul 2
+          number_of_guests = 3
+          base_price = advertisement.base_price
+          offered_price = 1700.80
+          guests_total = advertisement.totalguests
+          note = "Alergic to Cats"
+          payments = [12.20]
+        allocations = Allocation with customer = cesar; price = 1700.80; check_in_day=date 2023 Jun 26; check_out_day=date 2023 Jul 2
+        public = cesar
+  
+  bestDeal<- submit advertisement.hosts do
+    exerciseCmd modifyAd CalculateBestRequest
+      with
+        requestIds = [bookingAd,bookingAd2]
+
+  (place, payment) <- submit advertisement.hosts do
+    exerciseCmd bestDeal ConfirmBookingRequest
+      with
+        message_reference = "Grand Total for booking Ad"
+        days_before_cancellation = 2
+        cancellationfee = 30.0
+
+
+  billPaid <- submit alice do
+    exerciseCmd  payment ClaimPaid
       with 
-        adcustomer = cesar
-        adcheck_in_day = date 2022 Jun 26
-        adcheck_out_day = date 2022 Jul 2
-        adnumber_of_guests= 3
-        adnote= "Alergic to Dogs"
-        my_price = 1650.80
-        adpayments = [12.20]
+        transactionId = "1212sadsa"
+
+
 
   
   return ()

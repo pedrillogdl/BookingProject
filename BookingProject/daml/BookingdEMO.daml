@@ -1,0 +1,103 @@
+module Booking where
+
+import Setup
+import Daml.Script
+import DA.List
+
+template Listing
+  with
+    landlord : Party
+    public : Party
+    description : Text
+  where
+    signatory landlord
+    observer public
+      
+    choice ChooseOffer : ContractId RentContract
+      with
+        offers : [(ContractId Offer, Offer)]
+      controller landlord
+      do
+        create RentContract with
+            landlord, tenant = landlord, description, amount = 10.0
+
+template RentContract
+  with
+    landlord : Party
+    description : Text
+    tenant : Party
+    amount : Decimal
+  where
+    signatory landlord, tenant
+
+template Offer
+  with
+    listing : Listing
+    seeker : Party
+    amount : Decimal
+  where
+    signatory seeker
+    observer listing.landlord
+
+test = do
+  -- ============================================
+  -- PART 1: SETUP
+  -- Create all users required by the scenario. Note that all users have not only his/her own party but also refer to "public" 
+  Setup.setup
+
+  -- ============================================
+  -- PART 2: ADDING A LISTING
+  -- Since bob has already created elsewhere, we now "wire" all for bob, i.e. Id, user and primary party
+  bobId <- validateUserId $ toUserId "bob"
+  bobUser <- getUser bobId
+  let Some bob = bobUser.primaryParty
+  debug bob
+
+  -- Now, we get access to "public" by quering bob rights
+  bobRights <- listUserRights bobId
+  let readAs = [p | CanReadAs p <- bobRights]
+  let bobPublic = head readAs
+  debug bobPublic
+
+  -- With all in place, we create a property listing ... making it public
+  submit bob do
+    createCmd Listing 
+      with
+        landlord = bob
+        public = bobPublic
+        description = "Nice and cozy"
+
+  -- ============================================
+  -- PART 3: OFFERING
+  -- We repeat the procedure to retrieve access info for Alice, i.e. Id, user and primary party  
+  aliceId <- validateUserId $ toUserId "alice"
+  aliceUser <- getUser aliceId
+  let Some alice = aliceUser.primaryParty
+  debug alice
+
+  -- Again, we get access to "public"
+  aliceRights <- listUserRights aliceId
+  let readAs = [p | CanReadAs p <- aliceRights]
+  let alicePublic = head readAs
+  debug alicePublic
+
+  -- Now we query the listings
+  listings <- query @Listing alicePublic
+  let (listingId, listing) = head listings
+  debug listings
+  debug listingId
+
+  -- Make an offer
+  submit alice do
+    createCmd Offer with
+      listing = listing
+      seeker = alice
+      amount = 10.0
+
+  -- ============================================
+  -- PART 4: CHOOSE OFFER
+  offers <- query @Offer bob
+  submit bob do
+    exerciseCmd listingId ChooseOffer with offers = offers
+
+  pure ()

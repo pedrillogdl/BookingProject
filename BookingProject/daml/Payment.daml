@@ -7,8 +7,8 @@ template Payable
     grand_total: Decimal 
     reference: Text    
   where 
-    signatory from 
-    observer to 
+    signatory to 
+    observer from 
 
     choice ClaimPaid : 
                 ContractId PaymentClaim
