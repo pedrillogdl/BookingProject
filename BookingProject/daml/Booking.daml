@@ -128,6 +128,7 @@ template BookingRequest
         allocations: Allocation
         public: Party
     where
+        --create a function that verify that the date is available
         ensure bookinga.offered_price >= bookinga.base_price && bookinga.check_in_day < bookinga.check_out_day && bookinga.number_of_guests<=bookinga.guests_total
         signatory bookinga.customer
         observer bookinga.host
